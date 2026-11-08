@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>レセプトチェック</title>
+<link rel="stylesheet" href="viewer.css">
+<script type="module" src="viewer.js"></script>
+</head>
+<body>
+<div id="app">
+  <aside id="left" aria-label="要確認レセプト一覧">
+    <div class="strip" aria-hidden="true">一覧</div>
+    <header class="pane-head">
+      <div class="title-row">
+        <button id="collapseBtn" class="icon-btn" title="一覧を折りたたむ（[）">≡</button>
+        <select id="monthSelect" title="診療年月"></select>
+        <span id="monthTitle" class="month-title"></span>
+        <span class="spacer"></span>
+        <button id="openFileBtn" class="btn">ファイルを選択</button>
+        <input id="fileInput" type="file" accept=".csv,text/csv" multiple hidden>
+        <button id="settingsBtn" class="icon-btn" title="設定・データ削除">⚙</button>
+      </div>
+      <div id="summary" class="summary"></div>
+      <div class="filters">
+        <input id="search" type="search" placeholder="検索（患者番号・氏名・チェック内容）">
+        <label>状態<select id="stateFilter">
+          <option value="all">すべて</option><option value="todo">未のみ</option><option value="done">済のみ</option>
+        </select></label>
+        <label>差分<select id="diffFilter">
+          <option value="">すべて</option><option value="new">新規</option><option value="cont">継続</option><option value="recheck">要再確認</option>
+        </select></label>
+        <label>区分<select id="categoryFilter"></select></label>
+        <label>医師<select id="doctorFilter"></select></label>
+        <label>保険<select id="insuranceFilter"></select></label>
+        <label>並び<select id="sortSelect">
+          <option value="patientNo">患者番号</option><option value="name">氏名</option>
+          <option value="date">診察日</option><option value="category">チェック区分</option><option value="state">状態</option>
+        </select></label>
+        <label class="check"><input id="groupToggle" type="checkbox"> 患者ごと</label>
+      </div>
+      <div id="counts" class="counts"></div>
+    </header>
+
+    <div id="list" class="list" tabindex="0" role="listbox" aria-label="要確認の行"></div>
+
+    <section id="memoPanel" class="memo-panel" hidden>
+      <div class="memo-head"><span>📝 メモ</span><span id="memoWho"></span></div>
+      <textarea id="memoText" rows="2" placeholder="この患者のメモ（M キーで入力）"></textarea>
+    </section>
+
+    <footer class="pane-foot">
+      <details id="resolvedBox"><summary id="resolvedTitle">解消済み 0件</summary><div id="resolvedList"></div></details>
+      <details id="historyBox"><summary>読み込み履歴</summary><div id="historyList"></div></details>
+      <div class="keys">↑↓ 移動　Space 済　M メモ　[ 折りたたみ</div>
+    </footer>
+  </aside>
+
+  <div id="splitter" title="ドラッグで幅を変更"></div>
+
+  <main id="right">
+    <div class="urlbar">
+      <span id="karteLabel" class="karte-label"></span>
+      <code id="karteUrl"></code>
+      <span class="spacer"></span>
+      <button id="openTabBtn" class="btn" disabled>別タブで開く</button>
+    </div>
+    <div id="karte" class="karte">
+      <div class="placeholder">
+        <p>左の一覧で行を選ぶと、ここに該当カルテが表示されます。</p>
+        <p class="sub">カルテが表示されないときは、⚙ 設定で表示方式を「別ウインドウ」に切り替えてください。</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="dropOverlay" hidden><div>ここにCSVファイルをドロップ</div></div>
+<div id="toast" role="status" hidden></div>
+
+<dialog id="settingsDialog">
+  <form method="dialog">
+    <h2>設定</h2>
+    <fieldset>
+      <legend>カルテの表示方式</legend>
+      <label><input type="radio" name="karteMode" value="iframe"> A：このウインドウの右側に埋め込む</label>
+      <label><input type="radio" name="karteMode" value="window"> B：デジカルを別ウインドウで開いて連動させる</label>
+      <p class="note">A はデジカル側の「埋め込み禁止」の指定を、この拡張機能の画面に表示するときだけ外します。うまく表示されない・ログインできないときは B を使ってください。</p>
+    </fieldset>
+    <fieldset>
+      <legend>データ</legend>
+      <label><input type="checkbox" id="autoDelete"> 最後に読み込んでから90日たった月のデータを自動で削除する</label>
+      <p class="note">データはこのPCのこのChromeの中だけに保存され、外部には送信しません。</p>
+      <div class="danger">
+        <button type="button" id="deleteMonthBtn" class="btn">この月のデータを削除</button>
+        <button type="button" id="deleteAllBtn" class="btn">すべて削除</button>
+      </div>
+    </fieldset>
+    <div class="dialog-foot"><button value="close" class="btn primary">閉じる</button></div>
+  </form>
+</dialog>
+</body>
+</html>

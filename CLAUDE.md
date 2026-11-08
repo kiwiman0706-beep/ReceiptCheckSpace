@@ -7,6 +7,8 @@ M3デジカルの「要確認レセプト一覧」CSV を読み込み、一覧�
 - テスト用データは `samples/`（すべて架空。Shift_JIS / CRLF で実ファイルと同じ形式）。中身は `samples/README.md`
   - `original_anon/` は実際の出力（CSV・PDF）を匿名化したもの。形式の正解として扱う
 - ダミーデータは `tools/make_dummy_csv.py`、PDF は `tools/make_pdf_from_csv.py` で作れる
+- 拡張機能本体は `extension/`。構成は README の「構成」
+- テスト：`node --test tests/*.test.mjs`（`lib/` は chrome API に依存しない純粋なモジュールに保つ）
 
 ## 守ること
 
