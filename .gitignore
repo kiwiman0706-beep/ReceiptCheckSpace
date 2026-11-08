@@ -1,0 +1,14 @@
+# 実際のレセプト一覧（患者情報）は絶対にコミットしない
+要確認レセプト一覧_*
+*.pdf
+
+# ただし samples/ 以下は架空データなので含める
+!samples/**
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.zip
+*.crx
+*.pem
