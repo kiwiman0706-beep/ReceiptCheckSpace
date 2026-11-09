@@ -12,7 +12,11 @@ M3デジカルの「要確認レセプト一覧」を読み込んで、
 
 > このリポジトリには実際の患者データは含まれていません。サンプルの氏名・番号・IDはすべて架空です。
 
-## 使い方（院内PC）
+## 配信（CBCM）
+
+院内PCへは CBCM で強制インストールする。CRX は GitHub Actions で作り、このリポジトリの GitHub Pages から配信する。手順は [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)。
+
+## 使い方（院内PC・開発中の手動インストール）
 
 1. このリポジトリをダウンロード（または `git clone`）する
 2. Chrome で `chrome://extensions` を開き、右上の「デベロッパー モード」をオンにする
@@ -42,6 +46,7 @@ extension/            拡張機能本体（ビルドなし。このフォルダ�
   lib/store.js        chrome.storage.local への保存
   lib/karte.js        右ペインのカルテ表示（方式A/Bを差し替え）
 tests/                ロジックのテスト（node --test tests/*.test.mjs）
+.github/workflows/release.yml  CRX を作って GitHub Pages に公開
 ```
 
 ## 開発状況

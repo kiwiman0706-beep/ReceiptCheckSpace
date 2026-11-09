@@ -1,0 +1,130 @@
+# 拡張機能を CRX にして GitHub Pages から配信する（CBCM の「カスタムURLから強制インストール」用）
+# 手順は docs/DISTRIBUTION.md
+#
+# - main に extension/ の変更が入ると自動で実行（手動実行も可）
+# - 署名鍵は Secret「CRX_PRIVATE_KEY」（PEM の中身をそのまま）。鍵が変わると拡張機能IDも変わるので、なくさないこと
+# - Chrome が更新するのは manifest.json の version が上がったときだけ
+name: 配信（CRX / GitHub Pages）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'extension/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      base: ${{ steps.pack.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: テスト
+        run: node --test tests/*.test.mjs
+
+      - name: CRX を作る
+        id: pack
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRX_PRIVATE_KEY}" ]; then
+            echo "::error::Secret CRX_PRIVATE_KEY が設定されていません（docs/DISTRIBUTION.md の手順1・2）"
+            exit 1
+          fi
+          KEY="$RUNNER_TEMP/key.pem"
+          ( umask 077; printf '%s\n' "$CRX_PRIVATE_KEY" > "$KEY" )
+
+          BASE="https://${OWNER,,}.github.io/${REPO}"
+          UPDATE_URL="$BASE/stable/update.xml"
+          CRX_URL="$BASE/stable/receiptviewer.crx"
+          VERSION=$(jq -r .version extension/manifest.json)
+          ID=$(openssl pkey -in "$KEY" -pubout -outform DER | sha256sum | head -c32 | tr '0-9a-f' 'a-p')
+          echo "拡張機能ID: $ID / version: $VERSION"
+
+          # 公開中の版と同じ version なら、Chrome は更新しない
+          PUBLISHED=$(curl -fsSL "$UPDATE_URL" 2>/dev/null | grep -o 'version="[^"]*"' | head -1 | cut -d'"' -f2 || true)
+          if [ -n "$PUBLISHED" ] && [ "$PUBLISHED" = "$VERSION" ]; then
+            echo "::warning::manifest.json の version（$VERSION）が公開中の版と同じです。各PCには配信されません。version を上げてください。"
+          fi
+
+          # 配信用の manifest には update_url を入れる（開発時の「パッケージ化されていない拡張機能」には入れない）
+          rm -rf build site && mkdir -p build site/stable
+          cp -r extension build/receiptviewer
+          jq --arg u "$UPDATE_URL" '. + {update_url: $u}' extension/manifest.json > build/receiptviewer/manifest.json
+
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+          "$CHROME" --headless=new --no-sandbox --disable-gpu \
+            --pack-extension="$PWD/build/receiptviewer" --pack-extension-key="$KEY" || true
+          rm -f "$KEY"
+          test -s build/receiptviewer.crx || { echo "::error::CRX の作成に失敗しました"; exit 1; }
+          mv build/receiptviewer.crx site/stable/receiptviewer.crx
+
+          cat > site/stable/update.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <gupdate xmlns="http://www.google.com/update2/response" protocol="2.0">
+            <app appid="$ID">
+              <updatecheck codebase="$CRX_URL" version="$VERSION" />
+            </app>
+          </gupdate>
+          EOF
+
+          BUILT=$(TZ=Asia/Tokyo date '+%Y/%m/%d %H:%M')
+          cat > site/index.html <<EOF
+          <!doctype html>
+          <html lang="ja"><head><meta charset="utf-8"><title>ReceiptViewer 配信</title>
+          <style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;line-height:1.7}code{background:#f3f4f6;padding:2px 6px;border-radius:4px;user-select:all}th{text-align:left;padding-right:16px;white-space:nowrap}</style>
+          </head><body>
+          <h1>ReceiptViewer（レセプトチェック）</h1>
+          <p>Chrome Browser Cloud Management（CBCM）の「カスタムURLから追加」に、次の2つを登録します。</p>
+          <table>
+          <tr><th>拡張機能ID</th><td><code>$ID</code></td></tr>
+          <tr><th>URL（update.xml）</th><td><code>$UPDATE_URL</code></td></tr>
+          <tr><th>現在の版</th><td>$VERSION（$BUILT 作成）</td></tr>
+          </table>
+          </body></html>
+          EOF
+          chmod -R a+rX site
+
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          {
+            echo "### 配信する版"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| 拡張機能ID | \`$ID\` |"
+            echo "| update.xml | $UPDATE_URL |"
+            echo "| version | $VERSION |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ needs.build.outputs.base }}/
+    steps:
+      - uses: actions/deploy-pages@v4
