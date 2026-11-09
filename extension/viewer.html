@@ -15,7 +15,7 @@
         <span id="monthTitle" class="month-title"></span>
         <span class="spacer"></span>
         <button id="openFileBtn" class="btn">ファイルを選択</button>
-        <input id="fileInput" type="file" accept=".csv,text/csv" multiple hidden>
+        <input id="fileInput" type="file" accept=".csv,.zip,text/csv,application/zip" multiple hidden>
         <button id="arrangeBtn" class="icon-btn" title="カルテのウインドウを右に並べる">⧉</button>
         <button id="settingsBtn" class="icon-btn" title="設定・データ削除">⚙</button>
       </div>
@@ -56,12 +56,22 @@
 
 </div>
 
-<div id="dropOverlay" hidden><div>ここにCSVファイルをドロップ</div></div>
+<div id="dropOverlay" hidden><div>ここにCSV（またはパスワード付きZIP）をドロップ</div></div>
 <div id="toast" role="status" hidden></div>
 
 <dialog id="settingsDialog">
   <form method="dialog">
     <h2>設定</h2>
+    <fieldset>
+      <legend>ZIPのパスワード</legend>
+      <p id="pwState" class="note"></p>
+      <div class="pw-row">
+        <input id="pwInput" type="password" autocomplete="off" placeholder="パスワード">
+        <button type="button" id="pwSaveBtn" class="btn">記憶する</button>
+        <button type="button" id="pwClearBtn" class="btn">消去</button>
+      </div>
+      <p class="note">パスワード付きZIPをそのままドロップすると、このパスワードで開きます。パスワードはこのPCのこのChromeの中だけに保存されます。</p>
+    </fieldset>
     <fieldset>
       <legend>データ</legend>
       <label><input type="checkbox" id="autoDelete"> 最後に読み込んでから90日たった月のデータを自動で削除する</label>
@@ -72,6 +82,20 @@
       </div>
     </fieldset>
     <div class="dialog-foot"><button value="close" class="btn primary">閉じる</button></div>
+  </form>
+</dialog>
+
+<dialog id="pwDialog">
+  <form method="dialog">
+    <h2>ZIPのパスワード</h2>
+    <p class="note" id="pwFile"></p>
+    <p id="pwReason"></p>
+    <input id="pwAsk" type="password" autocomplete="off" class="pw-ask">
+    <label><input type="checkbox" id="pwRemember" checked> このPCに記憶する（次からは聞きません）</label>
+    <div class="dialog-foot">
+      <button value="cancel" class="btn" formnovalidate>キャンセル</button>
+      <button value="ok" class="btn primary">開く</button>
+    </div>
   </form>
 </dialog>
 </body>

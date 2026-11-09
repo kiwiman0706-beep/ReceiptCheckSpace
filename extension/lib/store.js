@@ -24,6 +24,19 @@ export async function saveSettings(s) {
   await local().set({ [SETTINGS]: s });
 }
 
+// ZIP のパスワード（このPCのこのChromeの中だけ。一覧のデータとは別に保存し、「すべて削除」では消さない）
+const ZIP_PASSWORD = 'rv:zipPassword';
+
+export async function getZipPassword() {
+  const { [ZIP_PASSWORD]: pw } = await local().get(ZIP_PASSWORD);
+  return pw || '';
+}
+
+export async function saveZipPassword(pw) {
+  if (pw) await local().set({ [ZIP_PASSWORD]: pw });
+  else await local().remove(ZIP_PASSWORD);
+}
+
 /** { months: { [ym]: { updatedAt, count } }, current: ym|null } */
 export async function getIndex() {
   const { [INDEX]: idx } = await local().get(INDEX);

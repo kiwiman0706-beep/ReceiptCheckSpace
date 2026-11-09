@@ -23,6 +23,16 @@ M3デジカルが実際に出力したCSV・PDF（1か月分）を、**行の構
 
 ファイル名は実物と同じ形式（`要確認レセプト一覧_YYYYMMDD_HHMM.csv` / `要確認レセプト一覧_YYYYMMDD.pdf`）です。
 
+## zip/ — パスワード付き ZIP のテスト用
+
+`original_anon/` の CSV を `tools/make_test_zips.py` で ZIP にしたもの。パスワードはすべて `test-pass`。
+
+| ファイル | 内容 |
+|---|---|
+| `zipcrypto_sjis.zip` | 従来の ZIP 暗号（ZipCrypto）。中のファイル名は Shift_JIS |
+| `aes256_utf8.zip` | AES-256。中のファイル名は UTF-8 |
+| `plain.zip` | パスワードなし |
+
 ## round1〜3 — 再読み込み（差分）のテスト用
 
 `tools/make_dummy_csv.py` でゼロから作った架空データ（診療年月 2025年11月）。

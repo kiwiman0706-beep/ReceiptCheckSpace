@@ -4,6 +4,8 @@ import { parseReceiptCsv, ymLabel, comparePatientNo, ReceiptFormatError } from '
 import { applyReload, summaryText, isSameList, isOlderThan } from './lib/diff.js';
 import * as store from './lib/store.js';
 import { createKarteView } from './lib/karte.js';
+import { extractCsvFiles, needsPassword, ZipError, ZipPasswordError } from './lib/zip.js';
+import { parseExportedAt } from './lib/receipt.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -70,9 +72,88 @@ async function loadFile(file) {
     toast('PDFには未対応です。同じ一覧のCSVファイルを読み込んでください。', true);
     return;
   }
+  if (/\.zip$/i.test(file.name)) {
+    const csvs = await openZip(file);
+    for (const c of csvs) {
+      // eslint-disable-next-line no-await-in-loop
+      await loadCsvBytes(c.bytes, c.name);
+    }
+    return;
+  }
+  await loadCsvBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+}
+
+/**
+ * パスワード付き ZIP から CSV を取り出す。記憶したパスワードで開けなければ入力してもらう。
+ * 戻り値：[{ name, bytes }]（キャンセル・失敗なら空）
+ */
+async function openZip(file) {
+  let buf;
+  try {
+    buf = new Uint8Array(await file.arrayBuffer());
+    let files;
+    if (!needsPassword(buf)) {
+      files = await extractCsvFiles(buf);
+    } else {
+      let pw = await store.getZipPassword();
+      let reason = pw ? '' : 'ZIPのパスワードを入力してください。';
+      let remember = false;
+      for (;;) {
+        if (!pw) {
+          // eslint-disable-next-line no-await-in-loop
+          const ans = await askPassword(file.name, reason);
+          if (!ans) return [];
+          ({ password: pw, remember } = ans);
+        }
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          files = await extractCsvFiles(buf, pw);
+          // eslint-disable-next-line no-await-in-loop
+          if (remember) { await store.saveZipPassword(pw); toast('パスワードを記憶しました'); }
+          break;
+        } catch (e) {
+          if (!(e instanceof ZipPasswordError)) throw e;
+          pw = '';
+          reason = 'パスワードが違います。もう一度入力してください。';
+        }
+      }
+    }
+    if (files.length === 0) {
+      toast('ZIPの中にCSVファイルがありませんでした。', true);
+      return [];
+    }
+    // 中のCSVの名前に出力日時がなければ、ZIPの名前から取る
+    return files.map((f) => ({ ...f, name: parseExportedAt(f.name) ? f.name : file.name.replace(/\.zip$/i, '.csv') }));
+  } catch (e) {
+    toast(e instanceof ZipError ? e.message : `ZIPを開けませんでした：${e.message}`, true);
+    return [];
+  }
+}
+
+function askPassword(fileName, reason) {
+  const dlg = $('pwDialog');
+  $('pwFile').textContent = fileName;
+  $('pwReason').textContent = reason;
+  $('pwAsk').value = '';
+  $('pwRemember').checked = true;
+  dlg.returnValue = '';
+  dlg.showModal();
+  $('pwAsk').focus();
+  return new Promise((resolve) => {
+    dlg.addEventListener('close', () => {
+      const password = $('pwAsk').value;
+      $('pwAsk').value = '';
+      resolve(dlg.returnValue === 'ok' && password ? { password, remember: $('pwRemember').checked } : null);
+      $('list').focus({ preventScroll: true });
+    }, { once: true });
+  });
+}
+
+async function loadCsvBytes(bytes, fileName) {
+  const file = { name: fileName };
   let parsed;
   try {
-    parsed = parseReceiptCsv(decodeBytes(await file.arrayBuffer()), file.name);
+    parsed = parseReceiptCsv(decodeBytes(bytes), file.name);
   } catch (e) {
     toast(e instanceof ReceiptFormatError ? e.message : `読み込めませんでした：${e.message}`, true);
     return;
@@ -178,7 +259,7 @@ function renderSummary() {
   box.replaceChildren();
   const rec = state.rec;
   if (!rec) {
-    box.textContent = 'デジカルの「要確認レセプト一覧」CSVをこの画面にドロップするか、「ファイルを選択」で読み込んでください。';
+    box.textContent = 'デジカルの「要確認レセプト一覧」（CSV、またはパスワード付きZIPのまま）をこの画面にドロップするか、「ファイルを選択」で読み込んでください。';
     return;
   }
   const last = state.lastSummary || rec.history.at(-1)?.summary;
@@ -244,7 +325,7 @@ function renderList() {
   const rec = state.rec;
 
   if (!rec) {
-    list.append(el('div', 'empty', 'まだ一覧がありません。\nCSVファイルをドロップしてください。'));
+    list.append(el('div', 'empty', 'まだ一覧がありません。\nCSVかZIPファイルをドロップしてください。'));
     renderCounts([]);
     return;
   }
@@ -574,9 +655,19 @@ function bindEvents() {
   const dlg = $('settingsDialog');
   $('settingsBtn').addEventListener('click', () => {
     $('autoDelete').checked = !!state.settings.autoDelete;
+    renderPasswordState();
     $('deleteMonthBtn').disabled = !state.rec;
     $('deleteMonthBtn').textContent = state.rec ? `${ymLabel(state.rec.ym)}分のデータを削除` : 'この月のデータを削除';
     dlg.showModal();
+  });
+  $('pwSaveBtn').addEventListener('click', savePasswordFromSettings);
+  $('pwInput').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); savePasswordFromSettings(); }
+  });
+  $('pwClearBtn').addEventListener('click', async () => {
+    await store.saveZipPassword('');
+    renderPasswordState();
+    toast('ZIPのパスワードを消去しました');
   });
   $('autoDelete').addEventListener('change', (ev) => saveSettings({ autoDelete: ev.target.checked }));
   $('deleteMonthBtn').addEventListener('click', async () => {
@@ -612,11 +703,26 @@ function bindEvents() {
   document.addEventListener('keydown', onKeyDown);
 }
 
+async function renderPasswordState() {
+  const pw = await store.getZipPassword();
+  $('pwState').textContent = pw ? '記憶しています（●●●●）。変えるときは新しいパスワードを入れて「記憶する」。' : 'まだ記憶していません。';
+  $('pwClearBtn').disabled = !pw;
+}
+
+async function savePasswordFromSettings() {
+  const v = $('pwInput').value;
+  if (!v) { toast('パスワードを入力してください', true); return; }
+  await store.saveZipPassword(v);
+  $('pwInput').value = '';
+  renderPasswordState();
+  toast('ZIPのパスワードを記憶しました');
+}
+
 function onKeyDown(ev) {
   const t = ev.target;
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) && t.type !== 'checkbox';
   if (ev.key === 'Escape' && typing) { t.blur(); $('list').focus(); return; }
-  if (typing || ev.ctrlKey || ev.metaKey || ev.altKey || $('settingsDialog').open) return;
+  if (typing || ev.ctrlKey || ev.metaKey || ev.altKey || $('settingsDialog').open || $('pwDialog').open) return;
   if (!state.rec) return;
   switch (ev.key) {
     case 'ArrowDown': ev.preventDefault(); moveSelection(1); break;
