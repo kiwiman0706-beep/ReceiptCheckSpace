@@ -1,136 +1,100 @@
-// 右ペイン（カルテ表示）。SPEC 3.5 の方式を差し替えられるよう、ここ1か所にまとめる。
+// カルテ表示。デジカルは埋め込み（iframe）を拒否するため、別ウインドウで開いて連動させる。
+// 表示方式を変えるときは、このファイルだけを差し替える（show(url) / arrange(url) を持つオブジェクトを返す）。
 //
-//   方式A 'iframe' … ビューア内の iframe にデジカルを表示。
-//                    デジカルが埋め込みを拒否するヘッダーを返す場合に備え、この拡張機能のページから
-//                    埋め込んだときだけ X-Frame-Options / CSP を外すルールを登録する（方式Aの間だけ）。
-//   方式B 'window' … デジカル用のウインドウを別に開き、行を選ぶたびにそのタブのURLを書き換える。
-//
-// どちらも show(url) を呼ぶだけでよい。
+// - デジカル用のウインドウを1つだけ開き、行を選ぶたびにそのタブのURLを書き換える
+//   （ハッシュだけ変わるので、デジカルの画面全体は読み込み直さずに切り替わる）
+// - 最初に開くとき、ビューアを画面の左、デジカルを右に並べる
+// - デジカルのウインドウが閉じられていたら、次に行を選んだときに開き直す
 
-const RULE_ID = 1;
 const SESSION_KEY = 'rv:karteWindow';
+const VIEWER_WIDTH = 480;
 
-async function enableFrameRule() {
-  await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: [RULE_ID],
-    addRules: [{
-      id: RULE_ID,
-      priority: 1,
-      action: {
-        type: 'modifyHeaders',
-        responseHeaders: [
-          { header: 'x-frame-options', operation: 'remove' },
-          { header: 'content-security-policy', operation: 'remove' },
-        ],
-      },
-      condition: {
-        requestDomains: ['digikar.jp'],
-        resourceTypes: ['sub_frame'],
-        initiatorDomains: [chrome.runtime.id],
-      },
-    }],
-  });
+async function getSavedTab() {
+  const { [SESSION_KEY]: saved } = await chrome.storage.session.get(SESSION_KEY);
+  if (!saved) return null;
+  try {
+    return await chrome.tabs.get(saved.tabId);
+  } catch {
+    return null;
+  }
 }
 
-async function disableFrameRule() {
-  await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [RULE_ID] });
+/** この画面（ビューアがいるモニター）の作業領域 */
+function screenArea() {
+  return {
+    left: screen.availLeft ?? 0,
+    top: screen.availTop ?? 0,
+    width: screen.availWidth,
+    height: screen.availHeight,
+  };
 }
 
-function sameDocument(a, b) {
-  return a && b && a.split('#')[0] === b.split('#')[0];
+/** ビューアを左に、デジカルを右に並べる位置 */
+function layout(viewerWin) {
+  const area = screenArea();
+  const viewerWidth = Math.min(
+    Math.max(viewerWin.state === 'normal' ? viewerWin.width : VIEWER_WIDTH, 360),
+    Math.floor(area.width / 2),
+  );
+  return {
+    viewer: { left: area.left, top: area.top, width: viewerWidth, height: area.height },
+    karte: { left: area.left + viewerWidth, top: area.top, width: area.width - viewerWidth, height: area.height },
+  };
 }
 
-class IframeView {
-  constructor(container) {
-    this.container = container;
-    this.frame = null;
-  }
+async function placeViewer(me, bounds) {
+  try {
+    if (me.state !== 'normal') await chrome.windows.update(me.id, { state: 'normal' });
+    await chrome.windows.update(me.id, bounds);
+  } catch { /* 位置合わせに失敗しても続ける */ }
+}
 
-  async start() {
-    await enableFrameRule();
+async function openKarteWindow(url, bounds) {
+  let win;
+  try {
+    win = await chrome.windows.create({ url, type: 'normal', focused: false, ...bounds });
+  } catch {
+    // 画面の構成によっては位置指定が拒否されるので、そのときは位置なしで開く
+    win = await chrome.windows.create({ url, type: 'normal', focused: false });
   }
-
-  async stop() {
-    this.frame?.remove();
-    this.frame = null;
-    await disableFrameRule();
-  }
-
-  async show(url) {
-    if (!this.frame) {
-      this.container.textContent = '';
-      this.frame = document.createElement('iframe');
-      this.frame.className = 'karte-frame';
-      this.frame.title = '該当カルテ';
-      this.frame.referrerPolicy = 'no-referrer';
-      // デジカル側がビューアの画面全体を乗っ取らないよう、上位ウインドウの書き換えだけを禁止する
-      this.frame.sandbox = [
-        'allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-popups',
-        'allow-popups-to-escape-sandbox', 'allow-modals', 'allow-downloads',
-      ].join(' ');
-      this.frame.src = url;
-      this.container.append(this.frame);
-      return;
-    }
-    // ハッシュだけ違うときは、ページ全体を読み込み直さずに切り替える
-    if (sameDocument(this.frame.src, url)) {
-      try { this.frame.contentWindow.location.replace(url); return; } catch { /* 下へ */ }
-    }
-    this.frame.src = url;
-  }
+  await chrome.storage.session.set({ [SESSION_KEY]: { windowId: win.id, tabId: win.tabs[0].id } });
+  return win;
 }
 
 class WindowView {
-  constructor() {
-    this.width = 520;
-  }
-
-  async start() {
-    await disableFrameRule();
-  }
-
-  async stop() {}
-
-  async #getTab() {
-    const { [SESSION_KEY]: saved } = await chrome.storage.session.get(SESSION_KEY);
-    if (!saved) return null;
-    try {
-      return await chrome.tabs.get(saved.tabId);
-    } catch {
-      return null;
-    }
-  }
-
+  /** 行のカルテを表示する */
   async show(url) {
-    const tab = await this.#getTab();
+    const tab = await getSavedTab();
     if (tab) {
       await chrome.tabs.update(tab.id, { url });
+      // 最小化されていたら戻す（フォーカスはビューアに残す）
+      const win = await chrome.windows.get(tab.windowId);
+      if (win.state === 'minimized') await chrome.windows.update(win.id, { state: 'normal' });
       return;
     }
-    // ビューアを左、デジカルを右に並べる
     const me = await chrome.windows.getCurrent();
-    const left = screen.availLeft ?? 0;
-    const top = screen.availTop ?? 0;
-    const height = screen.availHeight;
-    const viewerWidth = Math.min(Math.max(me.width || this.width, 360), Math.floor(screen.availWidth / 2));
-    try {
-      await chrome.windows.update(me.id, { state: 'normal' });
-      await chrome.windows.update(me.id, { left, top, width: viewerWidth, height });
-    } catch { /* 位置合わせに失敗しても続ける */ }
-    let win;
-    try {
-      win = await chrome.windows.create({
-        url, type: 'normal', focused: false,
-        left: left + viewerWidth, top, width: screen.availWidth - viewerWidth, height,
-      });
-    } catch {
-      // 画面の構成によっては位置指定が拒否されるので、そのときは位置なしで開く
-      win = await chrome.windows.create({ url, type: 'normal', focused: false });
+    const pos = layout(me);
+    await placeViewer(me, pos.viewer);
+    await openKarteWindow(url, pos.karte);
+  }
+
+  /** ビューアとデジカルを左右に並べ直す（デジカルのウインドウがなければ開く） */
+  async arrange(url) {
+    const me = await chrome.windows.getCurrent();
+    const pos = layout(me);
+    await placeViewer(me, pos.viewer);
+    const tab = await getSavedTab();
+    if (tab) {
+      await chrome.windows.update(tab.windowId, { state: 'normal' });
+      await chrome.windows.update(tab.windowId, pos.karte);
+      await chrome.windows.update(tab.windowId, { focused: true });
+      await chrome.windows.update(me.id, { focused: true });
+    } else if (url) {
+      await openKarteWindow(url, pos.karte);
     }
-    await chrome.storage.session.set({ [SESSION_KEY]: { windowId: win.id, tabId: win.tabs[0].id } });
   }
 }
 
-export function createKarteView(mode, container) {
-  return mode === 'window' ? new WindowView() : new IframeView(container);
+export function createKarteView() {
+  return new WindowView();
 }

@@ -32,7 +32,7 @@ async function init() {
     if (removed.length) toast(`古いデータを削除しました：${removed.map(ymLabel).join('、')}`);
   }
   applyLayoutSettings();
-  await setKarteMode(state.settings.karteMode, { initial: true });
+  state.karte = createKarteView();
   bindEvents();
 
   const idx = await store.getIndex();
@@ -46,37 +46,14 @@ async function init() {
 
 function applyLayoutSettings() {
   const s = state.settings;
-  document.documentElement.style.setProperty('--pane-width', `${s.paneWidth}px`);
-  $('app').classList.toggle('collapsed', !!s.collapsed);
   $('stateFilter').value = s.stateFilter;
   $('sortSelect').value = s.sort;
   $('groupToggle').checked = !!s.groupByPatient;
-  updateCollapseButton();
 }
 
 async function saveSettings(patch) {
   Object.assign(state.settings, patch);
   await store.saveSettings(state.settings);
-}
-
-async function setKarteMode(mode, { initial = false } = {}) {
-  if (state.karte) await state.karte.stop();
-  state.karte = createKarteView(mode, $('karte'));
-  await state.karte.start();
-  $('app').classList.toggle('mode-window', mode === 'window');
-  $('app').classList.toggle('mode-iframe', mode !== 'window');
-  if (!initial) {
-    resetKartePlaceholder();
-    await saveSettings({ karteMode: mode });
-    const sel = selectedRow();
-    if (sel) showKarte(sel);
-  }
-}
-
-function resetKartePlaceholder() {
-  const p = el('div', 'placeholder');
-  p.append(el('p', null, '左の一覧で行を選ぶと、ここに該当カルテが表示されます。'));
-  $('karte').replaceChildren(p);
 }
 
 // ---------------------------------------------------------------- 読み込み
@@ -128,13 +105,6 @@ async function loadFile(file) {
   const warn = parsed.warnings.length ? `（注意 ${parsed.warnings.length}件：${parsed.warnings[0]}${parsed.warnings.length > 1 ? ' ほか' : ''}）` : '';
   toast(`${ymLabel(ym)}分を読み込みました。${summary.count === 0 && !summary.first ? 'すべて解消しました。' : summaryText(summary)}${warn}`);
   if (record.lastSelected) selectRow(record.lastSelected, { scroll: true });
-  else clearKarteLabel();
-}
-
-function clearKarteLabel() {
-  $('karteLabel').textContent = '';
-  $('karteUrl').textContent = '';
-  $('openTabBtn').disabled = true;
 }
 
 function fmtExported(s) {
@@ -490,9 +460,6 @@ function selectRow(key, { scroll = true } = {}) {
 }
 
 function showKarte(r) {
-  $('karteLabel').textContent = `${r.patientNo} ${r.name}　${r.date}`;
-  $('karteUrl').textContent = r.url;
-  $('openTabBtn').disabled = !r.url;
   if (!r.url) return;
   state.karte.show(r.url).catch((e) => toast(`カルテを開けませんでした：${e.message}`, true));
 }
@@ -532,81 +499,6 @@ function onMemoInput() {
   saveRecordSoon();
 }
 
-// ---------------------------------------------------------------- 折りたたみ・幅
-function updateCollapseButton() {
-  const collapsed = $('app').classList.contains('collapsed');
-  const b = $('collapseBtn');
-  b.textContent = collapsed ? '📌' : '≡';
-  b.title = collapsed ? '一覧を固定表示に戻す（[）' : '一覧を折りたたむ（[）';
-}
-
-async function toggleCollapse() {
-  const app = $('app');
-  const collapsed = !app.classList.contains('collapsed');
-  app.classList.toggle('collapsed', collapsed);
-  app.classList.remove('peek');
-  updateCollapseButton();
-  await saveSettings({ collapsed });
-}
-
-function setupPeek() {
-  const app = $('app');
-  const left = $('left');
-  let hideTimer = null;
-  // 検索欄やメモに入力している間は引っ込めない（チェックボックス等は対象外）
-  const focusInside = () => {
-    const a = document.activeElement;
-    return left.contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && /^(search|text)$/.test(a.type)));
-  };
-  left.addEventListener('mouseenter', () => {
-    clearTimeout(hideTimer);
-    if (app.classList.contains('collapsed')) app.classList.add('peek');
-  });
-  left.addEventListener('mouseleave', () => {
-    if (!app.classList.contains('collapsed')) return;
-    hideTimer = setTimeout(() => {
-      if (!focusInside()) app.classList.remove('peek');
-    }, 250);
-  });
-  // カルテ（iframe）をクリックしたときはこのページからフォーカスが外れるので、そこでも引っ込める
-  window.addEventListener('blur', () => {
-    if (app.classList.contains('collapsed') && document.activeElement?.tagName === 'IFRAME') app.classList.remove('peek');
-  });
-  left.addEventListener('focusout', () => {
-    setTimeout(() => {
-      if (app.classList.contains('collapsed') && !left.matches(':hover') && !left.contains(document.activeElement)) {
-        app.classList.remove('peek');
-      }
-    }, 0);
-  });
-}
-
-function setupSplitter() {
-  const sp = $('splitter');
-  sp.addEventListener('pointerdown', (ev) => {
-    ev.preventDefault();
-    sp.setPointerCapture(ev.pointerId);
-    sp.classList.add('dragging');
-    const frame = document.querySelector('.karte-frame');
-    if (frame) frame.style.pointerEvents = 'none';
-    const move = (e) => {
-      const w = Math.max(300, Math.min(window.innerWidth * 0.8, e.clientX));
-      document.documentElement.style.setProperty('--pane-width', `${Math.round(w)}px`);
-    };
-    const up = (e) => {
-      sp.releasePointerCapture(e.pointerId);
-      sp.classList.remove('dragging');
-      if (frame) frame.style.pointerEvents = '';
-      sp.removeEventListener('pointermove', move);
-      sp.removeEventListener('pointerup', up);
-      const w = Math.round($('left').getBoundingClientRect().width);
-      saveSettings({ paneWidth: w });
-    };
-    sp.addEventListener('pointermove', move);
-    sp.addEventListener('pointerup', up);
-  });
-}
-
 // ---------------------------------------------------------------- トースト
 let toastTimer = null;
 function toast(msg, isError = false) {
@@ -634,15 +526,11 @@ function bindEvents() {
     ev.preventDefault();
     dragDepth++;
     $('dropOverlay').hidden = false;
-    const frame = document.querySelector('.karte-frame');
-    if (frame) frame.style.pointerEvents = 'none';
   });
   document.addEventListener('dragover', (ev) => { if (hasFiles(ev)) ev.preventDefault(); });
   const endDrag = () => {
     dragDepth = 0;
     $('dropOverlay').hidden = true;
-    const frame = document.querySelector('.karte-frame');
-    if (frame) frame.style.pointerEvents = '';
   };
   document.addEventListener('dragleave', () => { dragDepth--; if (dragDepth <= 0) endDrag(); });
   document.addEventListener('drop', async (ev) => {
@@ -666,34 +554,30 @@ function bindEvents() {
     await store.setCurrent(ev.target.value);
     await renderMonthSelect();
     renderAll();
-    if (state.rec?.lastSelected) selectRow(state.rec.lastSelected); else clearKarteLabel();
+    if (state.rec?.lastSelected) selectRow(state.rec.lastSelected);
   });
 
   $('memoText').addEventListener('input', onMemoInput);
   $('memoText').addEventListener('blur', () => { saveRecordNow(); renderList(); });
 
-  $('collapseBtn').addEventListener('click', toggleCollapse);
-  $('left').querySelector('.strip').addEventListener('click', () => $('app').classList.add('peek'));
-  setupPeek();
-  setupSplitter();
-
-  $('openTabBtn').addEventListener('click', () => {
+  $('arrangeBtn').addEventListener('click', async () => {
     const r = selectedRow();
-    if (r?.url) window.open(r.url, '_blank', 'noopener');
+    try {
+      await state.karte.arrange(r?.url);
+    } catch (e) {
+      toast(`ウインドウを並べられませんでした：${e.message}`, true);
+    }
+    $('list').focus({ preventScroll: true });
   });
 
   // 設定
   const dlg = $('settingsDialog');
   $('settingsBtn').addEventListener('click', () => {
-    for (const radio of dlg.querySelectorAll('input[name=karteMode]')) radio.checked = radio.value === state.settings.karteMode;
     $('autoDelete').checked = !!state.settings.autoDelete;
     $('deleteMonthBtn').disabled = !state.rec;
     $('deleteMonthBtn').textContent = state.rec ? `${ymLabel(state.rec.ym)}分のデータを削除` : 'この月のデータを削除';
     dlg.showModal();
   });
-  for (const radio of dlg.querySelectorAll('input[name=karteMode]')) {
-    radio.addEventListener('change', () => { if (radio.checked) setKarteMode(radio.value); });
-  }
   $('autoDelete').addEventListener('change', (ev) => saveSettings({ autoDelete: ev.target.checked }));
   $('deleteMonthBtn').addEventListener('click', async () => {
     const rec = state.rec;
@@ -705,7 +589,6 @@ function bindEvents() {
     state.lastSummary = null;
     await renderMonthSelect();
     renderAll();
-    resetKartePlaceholderIfIframe();
     dlg.close();
     toast(`${ymLabel(rec.ym)}分のデータを削除しました`);
   });
@@ -717,25 +600,16 @@ function bindEvents() {
     state.lastSummary = null;
     await renderMonthSelect();
     renderAll();
-    resetKartePlaceholderIfIframe();
     dlg.close();
     toast('すべてのデータを削除しました');
   });
 
-  // 選択肢を選んだら一覧にフォーカスを戻す（キーボード操作を続けられるように・折りたたみ時に引っ込むように）
+  // 選択肢を選んだら一覧にフォーカスを戻す（キーボード操作を続けられるように）
   for (const sel of $('left').querySelectorAll('select, input[type=checkbox]')) {
     sel.addEventListener('change', () => $('list').focus({ preventScroll: true }));
   }
 
   document.addEventListener('keydown', onKeyDown);
-}
-
-function resetKartePlaceholderIfIframe() {
-  clearKarteLabel();
-  if (state.settings.karteMode !== 'window') {
-    state.karte.stop().then(() => state.karte.start());
-    resetKartePlaceholder();
-  }
 }
 
 function onKeyDown(ev) {
@@ -753,11 +627,9 @@ function onKeyDown(ev) {
     case 'm': case 'M':
       if (selectedRow()) {
         ev.preventDefault();
-        if ($('app').classList.contains('collapsed')) $('app').classList.add('peek');
         $('memoText').focus();
       }
       break;
-    case '[': ev.preventDefault(); toggleCollapse(); break;
     default: break;
   }
 }

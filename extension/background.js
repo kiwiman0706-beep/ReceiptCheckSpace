@@ -37,27 +37,19 @@ async function currentBounds() {
   return null;
 }
 
+// ビューアは細めのウインドウで、いまの Chrome がある画面の左端に開く（右側にデジカルを並べるため）
+const VIEWER_WIDTH = 480;
+
 async function createViewer() {
-  const { 'rv:settings': s } = await chrome.storage.local.get('rv:settings');
   const bounds = await currentBounds();
-  const opts = { url: VIEWER, type: 'popup', focused: true };
-  const windowMode = s?.karteMode === 'window';
-  if (bounds) {
-    Object.assign(opts, bounds);
-    if (windowMode) opts.width = Math.min(bounds.width, Math.max(360, s.paneWidth || 460) + 40);
-  } else if (windowMode) {
-    Object.assign(opts, { width: Math.max(360, s.paneWidth || 460) + 40, height: 900 });
-  }
-  let win;
+  const opts = { url: VIEWER, type: 'popup', focused: true, width: VIEWER_WIDTH, height: 900 };
+  if (bounds) Object.assign(opts, { left: bounds.left, top: bounds.top, height: bounds.height });
   try {
-    win = await chrome.windows.create(opts);
+    await chrome.windows.create(opts);
   } catch (e) {
     // 位置の指定が拒否されたら（画面構成が変わったときなど）、位置なしで開く
     console.warn('位置を指定して開けなかったので、位置なしで開きます', e);
-    win = await chrome.windows.create({ url: VIEWER, type: 'popup', focused: true });
-  }
-  if (!windowMode) {
-    try { await chrome.windows.update(win.id, { state: 'maximized' }); } catch { /* そのままの大きさで使う */ }
+    await chrome.windows.create({ url: VIEWER, type: 'popup', focused: true, width: VIEWER_WIDTH, height: 900 });
   }
 }
 

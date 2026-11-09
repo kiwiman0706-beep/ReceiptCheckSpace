@@ -6,9 +6,6 @@ const SETTINGS = 'rv:settings';
 const monthKey = (ym) => `rv:month:${ym}`;
 
 export const DEFAULT_SETTINGS = {
-  karteMode: 'iframe',     // 'iframe'（方式A）| 'window'（方式B）
-  paneWidth: 460,
-  collapsed: false,
   groupByPatient: true,
   sort: 'patientNo',
   stateFilter: 'all',      // 'all' | 'todo' | 'done'

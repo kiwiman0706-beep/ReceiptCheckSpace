@@ -14,7 +14,6 @@
   --kohi: #2563eb;
   --tekio: #d97706;
   --other: #6b7280;
-  --strip: 12px;
   font-family: "Yu Gothic UI", "Meiryo UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   font-size: 13px;
   color: var(--text);
@@ -29,39 +28,10 @@ button, select, input, textarea { font: inherit; color: inherit; }
 /* ---------- 左ペイン ---------- */
 #left {
   position: relative;
-  width: var(--pane-width, 460px);
-  min-width: 300px;
-  max-width: 80vw;
+  flex: 1; min-width: 0;
   display: flex; flex-direction: column;
   background: var(--pane);
-  border-right: 1px solid var(--line);
-  transition: transform .15s ease;
 }
-#left .strip { display: none; }
-
-#splitter { width: 5px; cursor: col-resize; background: transparent; flex: none; }
-#splitter:hover, #splitter.dragging { background: var(--sel); }
-
-/* 折りたたみ：左端に細い帯だけ残し、マウスを乗せると重なって出てくる */
-#app.collapsed #splitter { display: none; }
-#app.collapsed #left {
-  position: absolute; left: 0; top: 0; bottom: 0; z-index: 20;
-  transform: translateX(calc(-100% + var(--strip)));
-  box-shadow: 2px 0 12px rgba(0,0,0,.18);
-}
-#app.collapsed #left .strip {
-  display: flex; align-items: center; justify-content: center;
-  position: absolute; top: 0; right: 0; bottom: 0; width: var(--strip); z-index: 1;
-  background: var(--accent); color: #fff; font-size: 10px; writing-mode: vertical-rl; letter-spacing: .3em;
-  cursor: pointer;
-}
-#app.collapsed.peek #left { transform: none; }
-#app.collapsed.peek #left .strip { display: none; }
-#app.collapsed #right { margin-left: var(--strip); }
-
-/* 方式B：右ペインはなく、一覧がウインドウいっぱい */
-#app.mode-window #right, #app.mode-window #splitter, #app.mode-window #collapseBtn { display: none; }
-#app.mode-window #left { width: 100%; max-width: none; border-right: 0; }
 
 .pane-head { padding: 8px 10px 6px; border-bottom: 1px solid var(--line); flex: none; }
 .title-row { display: flex; align-items: center; gap: 6px; }
@@ -145,15 +115,6 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .pane-foot .item { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .keys { margin-top: 2px; }
 
-/* ---------- 右ペイン ---------- */
-#right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.urlbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--pane); border-bottom: 1px solid var(--line); min-height: 34px; }
-.karte-label { font-weight: 700; white-space: nowrap; }
-#karteUrl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: all; }
-.karte { flex: 1; position: relative; background: #fff; }
-.karte-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.placeholder { padding: 48px; color: var(--muted); text-align: center; line-height: 1.8; }
-.placeholder .sub { font-size: 12px; }
 
 /* ---------- その他 ---------- */
 #dropOverlay { position: fixed; inset: 0; z-index: 100; background: rgba(37,99,235,.15); display: flex; align-items: center; justify-content: center; pointer-events: none; }

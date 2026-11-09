@@ -9,15 +9,14 @@
 <body>
 <div id="app">
   <aside id="left" aria-label="要確認レセプト一覧">
-    <div class="strip" aria-hidden="true">一覧</div>
     <header class="pane-head">
       <div class="title-row">
-        <button id="collapseBtn" class="icon-btn" title="一覧を折りたたむ（[）">≡</button>
         <select id="monthSelect" title="診療年月"></select>
         <span id="monthTitle" class="month-title"></span>
         <span class="spacer"></span>
         <button id="openFileBtn" class="btn">ファイルを選択</button>
         <input id="fileInput" type="file" accept=".csv,text/csv" multiple hidden>
+        <button id="arrangeBtn" class="icon-btn" title="カルテのウインドウを右に並べる">⧉</button>
         <button id="settingsBtn" class="icon-btn" title="設定・データ削除">⚙</button>
       </div>
       <div id="summary" class="summary"></div>
@@ -51,26 +50,10 @@
     <footer class="pane-foot">
       <details id="resolvedBox"><summary id="resolvedTitle">解消済み 0件</summary><div id="resolvedList"></div></details>
       <details id="historyBox"><summary>読み込み履歴</summary><div id="historyList"></div></details>
-      <div class="keys">↑↓ 移動　Space 済　M メモ　[ 折りたたみ</div>
+      <div class="keys">↑↓ 移動　Space 済　M メモ　⧉ カルテを横に並べる</div>
     </footer>
   </aside>
 
-  <div id="splitter" title="ドラッグで幅を変更"></div>
-
-  <main id="right">
-    <div class="urlbar">
-      <span id="karteLabel" class="karte-label"></span>
-      <code id="karteUrl"></code>
-      <span class="spacer"></span>
-      <button id="openTabBtn" class="btn" disabled>別タブで開く</button>
-    </div>
-    <div id="karte" class="karte">
-      <div class="placeholder">
-        <p>左の一覧で行を選ぶと、ここに該当カルテが表示されます。</p>
-        <p class="sub">カルテが表示されないときは、⚙ 設定で表示方式を「別ウインドウ」に切り替えてください。</p>
-      </div>
-    </div>
-  </main>
 </div>
 
 <div id="dropOverlay" hidden><div>ここにCSVファイルをドロップ</div></div>
@@ -79,12 +62,6 @@
 <dialog id="settingsDialog">
   <form method="dialog">
     <h2>設定</h2>
-    <fieldset>
-      <legend>カルテの表示方式</legend>
-      <label><input type="radio" name="karteMode" value="iframe"> A：このウインドウの右側に埋め込む</label>
-      <label><input type="radio" name="karteMode" value="window"> B：デジカルを別ウインドウで開いて連動させる</label>
-      <p class="note">A はデジカル側の「埋め込み禁止」の指定を、この拡張機能の画面に表示するときだけ外します。うまく表示されない・ログインできないときは B を使ってください。</p>
-    </fieldset>
     <fieldset>
       <legend>データ</legend>
       <label><input type="checkbox" id="autoDelete"> 最後に読み込んでから90日たった月のデータを自動で削除する</label>
