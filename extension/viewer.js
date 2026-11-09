@@ -5,7 +5,8 @@ import { applyReload, summaryText, isSameList, isOlderThan } from './lib/diff.js
 import * as store from './lib/store.js';
 import { createKarteView } from './lib/karte.js';
 import { extractCsvFiles, needsPassword, ZipError, ZipPasswordError } from './lib/zip.js';
-import { parseExportedAt, isNoPayerNumber } from './lib/receipt.js';
+import { parseExportedAt } from './lib/receipt.js';
+import { DEFAULT_RULES, matchesText, applyAutoDone, normalize, newRuleId } from './lib/bulk.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -21,6 +22,7 @@ const state = {
   lastSummary: null,  // 直近に読み込んだときの要約（この画面を開いている間だけ）
   collapsedGroups: new Set(),
   visibleKeys: [],    // 画面に出ている行（キーボード移動用）
+  filters: { state: 'all', diff: '', category: '', doctor: '', insurance: '' },
   karte: null,
 };
 
@@ -48,10 +50,17 @@ async function init() {
 
 function applyLayoutSettings() {
   const s = state.settings;
-  $('stateFilter').value = s.stateFilter;
+  if (!Array.isArray(s.bulkRules)) s.bulkRules = DEFAULT_RULES.map((r) => ({ ...r }));
+  state.filters.state = s.stateFilter || 'all';
   $('sortSelect').value = s.sort;
-  $('groupToggle').checked = !!s.groupByPatient;
-  $('hideNoPayer').checked = !!s.hideNoPayer;
+  renderToolbar();
+}
+
+/** 状態・表示の切り替えボタンの見た目を、いまの設定に合わせる */
+function renderToolbar() {
+  for (const b of $('stateSeg').children) b.setAttribute('aria-pressed', String(b.dataset.v === state.filters.state));
+  const view = state.settings.groupByPatient ? 'group' : 'flat';
+  for (const b of $('viewSeg').children) b.setAttribute('aria-pressed', String(b.dataset.v === view));
 }
 
 async function saveSettings(patch) {
@@ -178,6 +187,7 @@ async function loadCsvBytes(bytes, fileName) {
     return;
   }
   const { record, summary } = applyReload(prev, parsed, ym);
+  applyAutoDone(record, summary, state.settings.bulkRules);
   await store.saveMonth(record, { makeCurrent: true });
   state.rec = record;
   state.lastSummary = summary;
@@ -250,9 +260,51 @@ function fillSelect(select, values, allLabel = 'すべて') {
 function renderFilterOptions() {
   const rows = state.rec?.rows || [];
   const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+  const f = state.filters;
   fillSelect($('categoryFilter'), uniq(rows.map((r) => r.category)));
   fillSelect($('doctorFilter'), uniq(rows.map((r) => r.doctorName)).sort((a, b) => a.localeCompare(b, 'ja')));
-  fillSelect($('insuranceFilter'), uniq(rows.flatMap((r) => r.insuranceList)).sort((a, b) => a.localeCompare(b, 'ja')), 'すべて（含む）');
+  fillSelect($('insuranceFilter'), uniq(rows.flatMap((r) => r.insuranceList)).sort((a, b) => a.localeCompare(b, 'ja')), 'すべて（を含む）');
+  $('categoryFilter').value = f.category; f.category = $('categoryFilter').value;
+  $('doctorFilter').value = f.doctor; f.doctor = $('doctorFilter').value;
+  $('insuranceFilter').value = f.insurance; f.insurance = $('insuranceFilter').value;
+}
+
+const FILTER_LABELS = { category: '区分', doctor: '医師', insurance: '保険' };
+
+/** 絞り込みの件数バッジ・条件のチップ・差分のチップ */
+function renderFilterChips() {
+  const f = state.filters;
+  const active = Object.keys(FILTER_LABELS).filter((k) => f[k]);
+  $('filterBadge').hidden = active.length === 0;
+  $('filterBadge').textContent = String(active.length);
+  $('filterBtn').classList.toggle('on', active.length > 0);
+  const chips = $('activeChips');
+  chips.replaceChildren(...active.map((k) => {
+    const c = el('button', 'chip on', `${FILTER_LABELS[k]}：${f[k]}`);
+    c.type = 'button';
+    c.title = 'この条件を外す';
+    c.append(el('span', 'x', '×'));
+    c.addEventListener('click', () => { f[k] = ''; renderFilterOptions(); renderList(); });
+    return c;
+  }));
+  chips.hidden = active.length === 0 || !$('filterPanel').hidden;
+
+  const rows = state.rec?.rows || [];
+  const done = state.rec?.done || {};
+  const counts = {
+    new: rows.filter((r) => r.status === 'new').length,
+    recheck: rows.filter((r) => r.status === 'recheck' && !done[r.key]).length,
+  };
+  const labels = { new: '新規', recheck: '要再確認' };
+  if (f.diff && !counts[f.diff]) f.diff = '';
+  $('diffChips').replaceChildren(...Object.keys(labels).filter((k) => counts[k] > 0 || f.diff === k).map((k) => {
+    const c = el('button', `chip ${k}${f.diff === k ? ' on' : ''}`, `${labels[k]} ${counts[k]}`);
+    c.type = 'button';
+    c.setAttribute('aria-pressed', String(f.diff === k));
+    c.title = f.diff === k ? 'すべての行を表示する' : `${labels[k]}の行だけ表示する`;
+    c.addEventListener('click', () => { f.diff = f.diff === k ? '' : k; renderList(); });
+    return c;
+  }));
 }
 
 function renderSummary() {
@@ -281,22 +333,12 @@ function renderSummary() {
 
 function rowState(r) { return state.rec.done[r.key] ? 'done' : 'todo'; }
 
-/** 「負担者番号なしを隠す」で隠れる行か */
-function isHidden(r) {
-  return $('hideNoPayer').checked && isNoPayerNumber(r);
-}
-
 function filteredRows() {
   const rec = state.rec;
   if (!rec) return [];
   const q = $('search').value.trim().toLowerCase();
-  const st = $('stateFilter').value;
-  const diff = $('diffFilter').value;
-  const cat = $('categoryFilter').value;
-  const doc = $('doctorFilter').value;
-  const ins = $('insuranceFilter').value;
+  const { state: st, diff, category: cat, doctor: doc, insurance: ins } = state.filters;
   return rec.rows.filter((r) => {
-    if (isHidden(r)) return false;
     if (st !== 'all' && rowState(r) !== st) return false;
     if (diff && r.status !== diff) return false;
     if (cat && r.category !== cat) return false;
@@ -334,23 +376,26 @@ function renderList() {
   if (!rec) {
     list.append(el('div', 'empty', 'まだ一覧がありません。\nCSVかZIPファイルをドロップしてください。'));
     renderCounts([]);
+    renderFilterChips();
     return;
   }
   if (rec.rows.length === 0) {
     const e = el('div', 'empty all-clear', 'すべて解消しました 🎉');
     list.append(e);
     renderCounts([]);
+    renderFilterChips();
     return;
   }
 
   const rows = filteredRows().sort(comparator($('sortSelect').value));
   renderCounts(rows);
+  renderFilterChips();
   if (rows.length === 0) {
     list.append(el('div', 'empty', '条件に合う行はありません。'));
     return;
   }
 
-  if ($('groupToggle').checked) {
+  if (state.settings.groupByPatient) {
     const groups = new Map();
     for (const r of rows) {
       if (!groups.has(r.karteId)) groups.set(r.karteId, []);
@@ -382,15 +427,12 @@ function renderCounts(shown) {
   let t = `全${total}件（患者${patients}人）　未${total - done}／済${done}`;
   if (recheck) t += `　要再確認（未）${recheck}`;
   if (shown.length !== total) t += `　表示中 ${shown.length}件`;
-  const hidden = rec.rows.filter(isHidden).length;
-  if (hidden) t += `（負担者番号なし ${hidden}件を非表示）`;
   $('counts').textContent = t;
 }
 
 function renderGroup(karteId, rows) {
   const rec = state.rec;
-  // 隠している行は「全て済」や件数の対象にしない
-  const allRows = rec.rows.filter((r) => r.karteId === karteId && !isHidden(r));
+  const allRows = rec.rows.filter((r) => r.karteId === karteId);
   const doneCount = allRows.filter((r) => rec.done[r.key]).length;
   const allDone = doneCount === allRows.length;
   const open = !state.collapsedGroups.has(karteId);
@@ -592,13 +634,141 @@ function onMemoInput() {
 
 // ---------------------------------------------------------------- トースト
 let toastTimer = null;
-function toast(msg, isError = false) {
+/** 画面下のお知らせ。action = { label, run } を渡すとボタン（「元に戻す」など）を付ける */
+function toast(msg, isError = false, action = null) {
   const t = $('toast');
-  t.textContent = msg;
+  t.replaceChildren(el('span', null, msg));
+  if (action) {
+    const b = el('button', 'toast-action', action.label);
+    b.type = 'button';
+    b.addEventListener('click', () => { t.hidden = true; action.run(); });
+    t.append(b);
+  }
   t.classList.toggle('error', isError);
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, isError ? 8000 : 5000);
+  toastTimer = setTimeout(() => { t.hidden = true; }, isError || action ? 8000 : 5000);
+}
+
+// ---------------------------------------------------------------- 一括で済
+/** 行をまとめて済にする。元に戻せるお知らせを出す */
+function markDone(rows, what) {
+  const rec = state.rec;
+  const changed = rows.filter((r) => !rec.done[r.key]).map((r) => r.key);
+  if (changed.length === 0) { toast(`${what}：未の行はありません`); return; }
+  for (const k of changed) rec.done[k] = true;
+  saveRecordSoon();
+  renderList();
+  renderBulkMenu();
+  toast(`${what}：${changed.length}件を済にしました`, false, {
+    label: '元に戻す',
+    run: () => {
+      for (const k of changed) delete rec.done[k];
+      saveRecordSoon();
+      renderList();
+      renderBulkMenu();
+    },
+  });
+}
+
+function todoRowsMatching(text) {
+  const rec = state.rec;
+  if (!rec) return [];
+  return rec.rows.filter((r) => !rec.done[r.key] && matchesText(r, text));
+}
+
+async function saveRules(rules) {
+  await saveSettings({ bulkRules: rules });
+  renderBulkMenu();
+}
+
+function renderBulkMenu() {
+  if ($('bulkMenu').hidden) return;
+  const rules = state.settings.bulkRules;
+  const list = $('ruleList');
+  list.replaceChildren();
+  if (rules.length === 0) list.append(el('div', 'menu-empty', 'まだありません。下で文字列を入れて「条件として登録」できます。'));
+  for (const rule of rules) {
+    const row = el('div', 'rule');
+    const text = el('span', 'rule-text', rule.text);
+    text.title = rule.text;
+    row.append(text);
+
+    const auto = el('label', 'rule-auto');
+    auto.title = '一覧を読み込むたびに自動で済にする（前回済にした行が残っていても「要再確認」にしない）';
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = !!rule.auto;
+    cb.addEventListener('change', async () => {
+      await saveRules(rules.map((r) => (r.id === rule.id ? { ...r, auto: cb.checked } : r)));
+      if (cb.checked && state.rec) markDone(todoRowsMatching(rule.text), `「${rule.text}」`);
+    });
+    auto.append(cb, '自動');
+    row.append(auto);
+
+    const n = todoRowsMatching(rule.text).length;
+    const go = el('button', 'btn small', n ? `済にする（${n}）` : '済にする');
+    go.type = 'button';
+    go.disabled = n === 0;
+    go.addEventListener('click', () => markDone(todoRowsMatching(rule.text), `「${rule.text}」`));
+    row.append(go);
+
+    const del = el('button', 'icon-x', '×');
+    del.type = 'button';
+    del.title = 'この条件を削除';
+    del.addEventListener('click', () => saveRules(rules.filter((r) => r.id !== rule.id)));
+    row.append(del);
+    list.append(row);
+  }
+  updateBulkPreview();
+  const visible = filteredRows().filter((r) => !state.rec?.done[r.key]);
+  const vb = $('bulkVisibleBtn');
+  vb.textContent = `いま表示中の未 ${visible.length}件をすべて済にする`;
+  vb.disabled = visible.length === 0;
+}
+
+function updateBulkPreview() {
+  const text = $('bulkText').value;
+  const has = !!normalize(text);
+  const n = has ? todoRowsMatching(text).length : 0;
+  $('bulkPreview').textContent = has ? `未の ${n}件が対象` : '文字列を入れると、対象の件数が出ます';
+  $('bulkTextBtn').disabled = n === 0;
+  $('bulkSaveBtn').disabled = !has || state.settings.bulkRules.some((r) => normalize(r.text) === normalize(text));
+}
+
+function setupBulkMenu() {
+  const menu = $('bulkMenu');
+  const btn = $('bulkBtn');
+  const open = (v) => {
+    menu.hidden = !v;
+    btn.setAttribute('aria-expanded', String(v));
+    if (v) { renderBulkMenu(); $('bulkText').focus(); }
+  };
+  btn.addEventListener('click', () => open(menu.hidden));
+  document.addEventListener('mousedown', (ev) => {
+    if (!menu.hidden && !menu.contains(ev.target) && !btn.contains(ev.target) && !$('toast').contains(ev.target)) open(false);
+  });
+  menu.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') { ev.stopPropagation(); open(false); btn.focus(); }
+  });
+  $('bulkText').addEventListener('input', updateBulkPreview);
+  $('bulkText').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && !$('bulkTextBtn').disabled) { ev.preventDefault(); $('bulkTextBtn').click(); }
+  });
+  $('bulkTextBtn').addEventListener('click', () => {
+    const text = $('bulkText').value;
+    markDone(todoRowsMatching(text), `「${text.trim()}」を含む行`);
+  });
+  $('bulkSaveBtn').addEventListener('click', async () => {
+    const text = $('bulkText').value.trim();
+    if (!text) return;
+    await saveRules([...state.settings.bulkRules, { id: newRuleId(), text, auto: false }]);
+    $('bulkText').value = '';
+    updateBulkPreview();
+  });
+  $('bulkVisibleBtn').addEventListener('click', () => {
+    markDone(filteredRows(), '表示中の行');
+  });
 }
 
 // ---------------------------------------------------------------- イベント
@@ -630,13 +800,38 @@ function bindEvents() {
     if (ev.dataTransfer?.files?.length) await loadFiles(ev.dataTransfer.files);
   });
 
-  for (const id of ['search', 'diffFilter', 'categoryFilter', 'doctorFilter', 'insuranceFilter']) {
-    $(id).addEventListener(id === 'search' ? 'input' : 'change', () => renderList());
+  $('search').addEventListener('input', () => renderList());
+  for (const [id, key] of [['categoryFilter', 'category'], ['doctorFilter', 'doctor'], ['insuranceFilter', 'insurance']]) {
+    $(id).addEventListener('change', (ev) => { state.filters[key] = ev.target.value; renderList(); });
   }
-  $('stateFilter').addEventListener('change', (ev) => { saveSettings({ stateFilter: ev.target.value }); renderList(); });
+  $('filterBtn').addEventListener('click', () => {
+    const panel = $('filterPanel');
+    panel.hidden = !panel.hidden;
+    $('filterBtn').setAttribute('aria-expanded', String(!panel.hidden));
+    renderFilterChips();
+  });
+  $('clearFiltersBtn').addEventListener('click', () => {
+    Object.assign(state.filters, { category: '', doctor: '', insurance: '' });
+    renderFilterOptions();
+    renderList();
+  });
+  $('stateSeg').addEventListener('click', (ev) => {
+    const v = ev.target.closest('button')?.dataset.v;
+    if (!v) return;
+    state.filters.state = v;
+    saveSettings({ stateFilter: v });
+    renderToolbar();
+    renderList();
+  });
+  $('viewSeg').addEventListener('click', (ev) => {
+    const v = ev.target.closest('button')?.dataset.v;
+    if (!v) return;
+    saveSettings({ groupByPatient: v === 'group' });
+    renderToolbar();
+    renderList();
+  });
   $('sortSelect').addEventListener('change', (ev) => { saveSettings({ sort: ev.target.value }); renderList(); });
-  $('groupToggle').addEventListener('change', (ev) => { saveSettings({ groupByPatient: ev.target.checked }); renderList(); });
-  $('hideNoPayer').addEventListener('change', (ev) => { saveSettings({ hideNoPayer: ev.target.checked }); renderList(); });
+  setupBulkMenu();
 
   $('monthSelect').addEventListener('change', async (ev) => {
     await saveRecordNow();
@@ -707,7 +902,7 @@ function bindEvents() {
   });
 
   // 選択肢を選んだら一覧にフォーカスを戻す（キーボード操作を続けられるように）
-  for (const sel of $('left').querySelectorAll('select, input[type=checkbox]')) {
+  for (const sel of $('left').querySelectorAll('.toolbar select, .seg button')) {
     sel.addEventListener('change', () => $('list').focus({ preventScroll: true }));
   }
 
@@ -747,6 +942,7 @@ function onKeyDown(ev) {
         $('memoText').focus();
       }
       break;
+    case '/': ev.preventDefault(); $('search').focus(); break;
     default: break;
   }
 }

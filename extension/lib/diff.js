@@ -87,9 +87,11 @@ export function applyReload(prev, parsed, ym, now = Date.now()) {
 export function summaryText(s) {
   if (!s) return '';
   if (s.first) {
-    return s.count === 0 ? '要確認の行はありません' : `初回読み込み：${s.count}件（患者${s.patients}人）`;
+    if (s.count === 0) return '要確認の行はありません';
+    return `初回読み込み：${s.count}件（患者${s.patients}人）${s.autoDone > 0 ? `（自動で済 ${s.autoDone}件）` : ''}`;
   }
   let t = `前回 ${s.prevCount}件 → 今回 ${s.count}件（解消 ${s.resolved}／継続 ${s.cont}／新規 ${s.added}）`;
   if (s.recheck > 0) t += `。済にしたのに残っている行：${s.recheck}件`;
+  if (s.autoDone > 0) t += `（自動で済 ${s.autoDone}件）`;
   return t;
 }

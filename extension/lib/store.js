@@ -7,7 +7,7 @@ const monthKey = (ym) => `rv:month:${ym}`;
 
 export const DEFAULT_SETTINGS = {
   groupByPatient: true,
-  hideNoPayer: true,       // 「公費(負担者番号なし)」の行を隠す
+  // bulkRules: 一括で済の条件（未設定なら lib/bulk.js の DEFAULT_RULES）
   sort: 'patientNo',
   stateFilter: 'all',      // 'all' | 'todo' | 'done'
   autoDelete: false,       // 古い月を自動削除

@@ -14,31 +14,68 @@
         <select id="monthSelect" title="診療年月"></select>
         <span id="monthTitle" class="month-title"></span>
         <span class="spacer"></span>
-        <button id="openFileBtn" class="btn">ファイルを選択</button>
+        <button id="openFileBtn" class="btn" title="CSV／パスワード付きZIPを読み込む（ドロップでも可）">開く</button>
         <input id="fileInput" type="file" accept=".csv,.zip,text/csv,application/zip" multiple hidden>
         <button id="arrangeBtn" class="icon-btn" title="カルテのウインドウを右に並べる">⧉</button>
         <button id="settingsBtn" class="icon-btn" title="設定・データ削除">⚙</button>
       </div>
       <div id="summary" class="summary"></div>
-      <div class="filters">
-        <input id="search" type="search" placeholder="検索（患者番号・氏名・チェック内容）">
-        <label>状態<select id="stateFilter">
-          <option value="all">すべて</option><option value="todo">未のみ</option><option value="done">済のみ</option>
-        </select></label>
-        <label>差分<select id="diffFilter">
-          <option value="">すべて</option><option value="new">新規</option><option value="cont">継続</option><option value="recheck">要再確認</option>
-        </select></label>
-        <label>区分<select id="categoryFilter"></select></label>
-        <label>医師<select id="doctorFilter"></select></label>
-        <label>保険<select id="insuranceFilter"></select></label>
-        <label>並び<select id="sortSelect">
-          <option value="patientNo">患者番号</option><option value="name">氏名</option>
-          <option value="date">診察日</option><option value="category">チェック区分</option><option value="state">状態</option>
-        </select></label>
-        <label class="check"><input id="groupToggle" type="checkbox"> 患者ごと</label>
-        <label class="check" title="「公費(負担者番号なし) 受給者番号が登録されていません。」の行を隠す（負担者番号がある行は表示）"><input id="hideNoPayer" type="checkbox"> 負担者番号なしを隠す</label>
+
+      <div class="search-row">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <input id="search" type="search" placeholder="患者番号・氏名・チェック内容・メモで検索">
+        </div>
+        <button id="filterBtn" class="tool-btn" aria-expanded="false" title="区分・医師・保険で絞り込む">絞り込み<span id="filterBadge" class="count-badge" hidden></span></button>
       </div>
-      <div id="counts" class="counts"></div>
+
+      <div id="filterPanel" class="filter-panel" hidden>
+        <label><span>区分</span><select id="categoryFilter"></select></label>
+        <label><span>医師</span><select id="doctorFilter"></select></label>
+        <label><span>保険</span><select id="insuranceFilter"></select></label>
+        <div class="filter-foot"><button id="clearFiltersBtn" class="link-btn" type="button">条件をクリア</button></div>
+      </div>
+      <div id="activeChips" class="chips"></div>
+
+      <div class="toolbar">
+        <div class="seg" id="stateSeg" role="group" aria-label="状態で絞り込む">
+          <button type="button" data-v="all">すべて</button><button type="button" data-v="todo">未</button><button type="button" data-v="done">済</button>
+        </div>
+        <div id="diffChips" class="chips inline"></div>
+        <span class="spacer"></span>
+        <select id="sortSelect" class="compact" title="並び順">
+          <option value="patientNo">患者番号順</option><option value="name">氏名順</option>
+          <option value="date">診察日順</option><option value="category">区分順</option><option value="state">未・要再確認を先に</option>
+        </select>
+        <div class="seg" id="viewSeg" role="group" aria-label="表示のしかた">
+          <button type="button" data-v="group" title="患者ごとにまとめる">患者</button><button type="button" data-v="flat" title="1行ずつ並べる">行</button>
+        </div>
+      </div>
+
+      <div class="counts-row">
+        <div id="counts" class="counts"></div>
+        <span class="spacer"></span>
+        <div class="menu-wrap">
+          <button id="bulkBtn" class="tool-btn accent" aria-expanded="false" title="条件に合う行をまとめて済にする">✓ 一括で済 ▾</button>
+          <div id="bulkMenu" class="menu" hidden>
+            <div class="menu-title">登録した条件</div>
+            <div id="ruleList" class="rule-list"></div>
+            <div class="menu-sep"></div>
+            <div class="menu-title">文字列を含む行（チェック内容・保険・区分）</div>
+            <div class="menu-row">
+              <input id="bulkText" type="text" placeholder="例：負担者番号なし／生活保護" autocomplete="off">
+              <button id="bulkTextBtn" type="button" class="btn primary" disabled>済にする</button>
+            </div>
+            <div class="menu-row note">
+              <span id="bulkPreview">文字列を入れると、対象の件数が出ます</span>
+              <span class="spacer"></span>
+              <button id="bulkSaveBtn" type="button" class="link-btn" disabled>条件として登録</button>
+            </div>
+            <div class="menu-sep"></div>
+            <button id="bulkVisibleBtn" type="button" class="menu-item"></button>
+          </div>
+        </div>
+      </div>
     </header>
 
     <div id="list" class="list" tabindex="0" role="listbox" aria-label="要確認の行"></div>
@@ -51,7 +88,7 @@
     <footer class="pane-foot">
       <details id="resolvedBox"><summary id="resolvedTitle">解消済み 0件</summary><div id="resolvedList"></div></details>
       <details id="historyBox"><summary>読み込み履歴</summary><div id="historyList"></div></details>
-      <div class="keys">↑↓ 移動　Space 済　M メモ　⧉ カルテを横に並べる</div>
+      <div class="keys">↑↓ 移動　Space 済　M メモ　/ 検索　⧉ カルテを横に並べる</div>
     </footer>
   </aside>
 
