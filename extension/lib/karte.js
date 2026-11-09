@@ -63,6 +63,11 @@ class IframeView {
       this.frame.className = 'karte-frame';
       this.frame.title = '該当カルテ';
       this.frame.referrerPolicy = 'no-referrer';
+      // デジカル側がビューアの画面全体を乗っ取らないよう、上位ウインドウの書き換えだけを禁止する
+      this.frame.sandbox = [
+        'allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-popups',
+        'allow-popups-to-escape-sandbox', 'allow-modals', 'allow-downloads',
+      ].join(' ');
       this.frame.src = url;
       this.container.append(this.frame);
       return;

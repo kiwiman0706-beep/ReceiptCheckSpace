@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ReceiptViewer（レセプトチェック）",
   "short_name": "ReceiptViewer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "デジカルの「要確認レセプト一覧」CSVを読み込み、一覧とカルテを並べてレセプトチェックを進めるためのビューア。データはこのPCの中だけに保存します。",
   "action": {
     "default_title": "レセプトチェックを開く",
