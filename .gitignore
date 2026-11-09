@@ -12,3 +12,6 @@ Thumbs.db
 *.zip
 *.crx
 *.pem
+
+# 配信物（CBCM が参照する）
+!dist/*.crx

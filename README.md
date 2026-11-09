@@ -14,7 +14,12 @@ M3デジカルの「要確認レセプト一覧」を読み込んで、
 
 ## 配信（CBCM）
 
-院内PCへは CBCM で強制インストールする。CRX は GitHub Actions で作り、このリポジトリの GitHub Pages から配信する。手順は [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)。
+院内PCへは CBCM で強制インストールする（main の `dist/` から配信）。手順は [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)。
+
+| CBCM に登録する値 | |
+|---|---|
+| 拡張機能ID | `kifacglijelmbclmblpcdhbbipoefafe` |
+| URL | `https://raw.githubusercontent.com/kiwiman0706-beep/ReceiptCheckSpace/main/dist/update.xml` |
 
 ## 使い方（院内PC・開発中の手動インストール）
 
@@ -46,7 +51,8 @@ extension/            拡張機能本体（ビルドなし。このフォルダ�
   lib/store.js        chrome.storage.local への保存
   lib/karte.js        右ペインのカルテ表示（方式A/Bを差し替え）
 tests/                ロジックのテスト（node --test tests/*.test.mjs）
-.github/workflows/release.yml  CRX を作って GitHub Pages に公開
+tools/build_crx.sh    配信用の CRX と update.xml を dist/ に作る
+dist/                 配信物（CBCM が参照する）
 ```
 
 ## 開発状況
