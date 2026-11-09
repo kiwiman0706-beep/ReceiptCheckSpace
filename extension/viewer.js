@@ -5,7 +5,7 @@ import { applyReload, summaryText, isSameList, isOlderThan } from './lib/diff.js
 import * as store from './lib/store.js';
 import { createKarteView } from './lib/karte.js';
 import { extractCsvFiles, needsPassword, ZipError, ZipPasswordError } from './lib/zip.js';
-import { parseExportedAt } from './lib/receipt.js';
+import { parseExportedAt, isNoPayerNumber } from './lib/receipt.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -51,6 +51,7 @@ function applyLayoutSettings() {
   $('stateFilter').value = s.stateFilter;
   $('sortSelect').value = s.sort;
   $('groupToggle').checked = !!s.groupByPatient;
+  $('hideNoPayer').checked = !!s.hideNoPayer;
 }
 
 async function saveSettings(patch) {
@@ -280,6 +281,11 @@ function renderSummary() {
 
 function rowState(r) { return state.rec.done[r.key] ? 'done' : 'todo'; }
 
+/** 「負担者番号なしを隠す」で隠れる行か */
+function isHidden(r) {
+  return $('hideNoPayer').checked && isNoPayerNumber(r);
+}
+
 function filteredRows() {
   const rec = state.rec;
   if (!rec) return [];
@@ -290,6 +296,7 @@ function filteredRows() {
   const doc = $('doctorFilter').value;
   const ins = $('insuranceFilter').value;
   return rec.rows.filter((r) => {
+    if (isHidden(r)) return false;
     if (st !== 'all' && rowState(r) !== st) return false;
     if (diff && r.status !== diff) return false;
     if (cat && r.category !== cat) return false;
@@ -375,12 +382,15 @@ function renderCounts(shown) {
   let t = `全${total}件（患者${patients}人）　未${total - done}／済${done}`;
   if (recheck) t += `　要再確認（未）${recheck}`;
   if (shown.length !== total) t += `　表示中 ${shown.length}件`;
+  const hidden = rec.rows.filter(isHidden).length;
+  if (hidden) t += `（負担者番号なし ${hidden}件を非表示）`;
   $('counts').textContent = t;
 }
 
 function renderGroup(karteId, rows) {
   const rec = state.rec;
-  const allRows = rec.rows.filter((r) => r.karteId === karteId);
+  // 隠している行は「全て済」や件数の対象にしない
+  const allRows = rec.rows.filter((r) => r.karteId === karteId && !isHidden(r));
   const doneCount = allRows.filter((r) => rec.done[r.key]).length;
   const allDone = doneCount === allRows.length;
   const open = !state.collapsedGroups.has(karteId);
@@ -626,6 +636,7 @@ function bindEvents() {
   $('stateFilter').addEventListener('change', (ev) => { saveSettings({ stateFilter: ev.target.value }); renderList(); });
   $('sortSelect').addEventListener('change', (ev) => { saveSettings({ sort: ev.target.value }); renderList(); });
   $('groupToggle').addEventListener('change', (ev) => { saveSettings({ groupByPatient: ev.target.checked }); renderList(); });
+  $('hideNoPayer').addEventListener('change', (ev) => { saveSettings({ hideNoPayer: ev.target.checked }); renderList(); });
 
   $('monthSelect').addEventListener('change', async (ev) => {
     await saveRecordNow();

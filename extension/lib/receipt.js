@@ -153,6 +153,14 @@ export function parseReceiptCsv(text, fileName = '') {
   return { ym, exportedAt, fileName, rows, warnings };
 }
 
+/**
+ * 「公費(負担者番号なし) 受給者番号が登録されていません。」の行か。
+ * 負担者番号が入っている行（「公費21XXXXXX 受給者番号が…」）は対象外。
+ */
+export function isNoPayerNumber(r) {
+  return /^公費\s*[(（]\s*負担者番号なし\s*[)）]/.test((r.content || '').trim());
+}
+
 /** 患者番号の数値比較（桁数が違っても数値順） */
 export function comparePatientNo(a, b) {
   const na = Number(a), nb = Number(b);

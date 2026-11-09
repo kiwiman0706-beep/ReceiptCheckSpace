@@ -107,3 +107,15 @@ test('空のファイル・UTF-8 のファイル', () => {
   assert.throws(() => parseReceiptCsv('a,b\n1,2', 'z.csv'));
   assert.equal(parseExportedAt('要確認レセプト一覧_20260108.pdf'), '2026-01-08T00:00');
 });
+
+test('負担者番号なしの判定（負担者番号がある行は対象外）', async () => {
+  const { isNoPayerNumber } = await import('../extension/lib/receipt.js');
+  assert.equal(isNoPayerNumber({ content: '公費(負担者番号なし) 受給者番号が登録されていません。' }), true);
+  assert.equal(isNoPayerNumber({ content: '公費（負担者番号なし） 受給者番号が登録されていません。' }), true);
+  assert.equal(isNoPayerNumber({ content: '公費21999999 受給者番号が登録されていません。' }), false);
+  assert.equal(isNoPayerNumber({ content: 'デパケンＲ錠１００ｍｇ：適応症がついていません。' }), false);
+  const p = load(`${anonDir}/${anonCsv}`);
+  const hidden = p.rows.filter(isNoPayerNumber);
+  assert.ok(hidden.length > 0);
+  assert.ok(p.rows.some((r) => r.category === '公費' && !isNoPayerNumber(r)), '負担者番号ありの公費行は残る');
+});
